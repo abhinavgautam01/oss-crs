@@ -625,12 +625,12 @@ def render_run_crs_compose_docker_compose(
             build_out = crs_compose.work_dir.get_build_output_dir(
                 crs.name, target, build_id, sanitizer, create=False
             )
-            if server.artifacts_path:
+            if server.requires_build_artifacts:
                 if source_only or not Path(build_out).is_dir():
                     raise ValueError(
                         f"CRS '{crs.name}' MCP server '{server.name}': "
-                        f"artifacts_path '{server.artifacts_path}' requires "
-                        f"build output at {build_out}, which is not present "
+                        f"requires_build_artifacts needs build output at "
+                        f"{build_out}, which is not present "
                         f"(source_only={source_only})."
                     )
             mcp_instances.append(

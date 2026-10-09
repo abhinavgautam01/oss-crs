@@ -46,7 +46,7 @@ class MCPServerConfig(BaseModel):
     transport: str = "http"
     requires_source: bool = False
     command: Optional[list[str]] = None
-    artifacts_path: Optional[str] = None
+    requires_build_artifacts: bool = False
 
     @property
     def dockerfile_path(self) -> Optional[Path]:
@@ -97,21 +97,16 @@ class MCPServerConfig(BaseModel):
             )
         return "http" if v == "streamable-http" else v
 
-    @field_validator("artifacts_path")
+    @field_validator("requires_build_artifacts")
     @classmethod
-    def validate_artifacts_path(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return None
-        if not v or not v.startswith("/"):
+    def validate_requires_build_artifacts(cls, v: bool) -> bool:
+        # Plain boolean like requires_source: fixed conventional endpoints
+        # (base build output read-only, rebuild tree read-write — the server
+        # writes trace/verdict files there, unlike source consumers).
+        if not isinstance(v, bool):
             raise ValueError(
-                "MCP server artifacts_path must be an absolute container path "
-                f"starting with '/': {v!r}"
+                f"MCP server requires_build_artifacts must be true or false, got {v!r}"
             )
-        if ":" in v:
-            raise ValueError(f"MCP server artifacts_path must not contain ':': {v!r}")
-        parts = v.split("/")
-        if ".." in parts:
-            raise ValueError(f"MCP server artifacts_path must not contain '..': {v!r}")
         return v
 
 

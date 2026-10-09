@@ -34,6 +34,14 @@ creates service `mcp-crs-bug-finding-claude-code-ast_grep` and gateway/DNS alias
 `crs_bug_finding_claude_code_ast_grep`. Hyphens in the CRS name become underscores
 in the gateway alias. Colliding gateway names are rejected.
 
+Each MCP server container shares its owning CRS's resource group (`cgroup_parent`
+in `--cgroup-parent` mode, otherwise `cpuset` and `mem_limit`), receives
+`OSS_CRS_NAME=<crs_name>`, `BUILDER_MODULE=builder-sidecar`, and
+`RUNNER_MODULE=runner-sidecar` in its environment, and joins both
+`<compose>-infra-only-network` (under its gateway alias) and `<compose>-network`
+so servers that drive builds or replays can resolve `builder-sidecar.<crs>` and
+`runner-sidecar.<crs>`.
+
 ## Registry (`registry/mcp/*.yaml`)
 
 | Field | Required | Default | Description |
@@ -44,7 +52,7 @@ in the gateway alias. Colliding gateway names are rejected.
 | `transport` | No | `http` | `http`, `sse`, or `streamable-http`. The latter is normalized to `http` for LiteLLM. |
 | `requires_source` | No | `false` | Mount target source read-only at `/OSS_CRS_TARGET_SOURCE`. |
 | `command` | No | Image default | List of command arguments overriding the image command. |
-| `artifacts_path` | No | No mount | Absolute container destination for the owning CRS's build output, mounted read-only. Must not contain `:` or `..` path segments. |
+| `requires_build_artifacts` | No | `false` | Mount the owning CRS's base build output read-only at `/OSS_CRS_BUILD_OUT_DIR` and the shared rebuild output directory read-write at `/OSS_CRS_REBUILD_OUT_DIR`. |
 
 For example, an SSE server that reads target source:
 
@@ -59,10 +67,11 @@ requires_source: true
 `requires_source` uses the same fixed source path as CRS run modules.
 Tool arguments referring to target files should use `/OSS_CRS_TARGET_SOURCE`.
 
-For a tool that also reads build artifacts, set, for example,
-`artifacts_path: /OSS_CRS_BUILD_OUT_DIR`. This mount requires existing build
-output for that CRS and target; it fails during rendering if the output is
-missing or the run is source-only.
+For a tool that also reads or writes build artifacts (such as trace/verdict
+files alongside replayed builds), set `requires_build_artifacts: true` to mount
+`/OSS_CRS_BUILD_OUT_DIR` read-only and `/OSS_CRS_REBUILD_OUT_DIR` read-write.
+This requires existing build output for that CRS and target; rendering fails if
+the build output is missing or the run is source-only.
 
 ## Image preparation
 
@@ -88,9 +97,10 @@ Without a local Dockerfile, the image is pulled from a registry.
 ## Gateway and prompt hook
 
 The generated LiteLLM configuration registers each namespaced endpoint using
-its validated transport and `allow_all_keys: true`. Per-CRS instances separate
-server containers and mounts; this setting does not restrict each gateway
-entry to only its owning CRS's key.
+its validated transport and `allow_all_keys: false` (deny by default). During
+key generation, each CRS's virtual key is granted only its own namespaced MCP
+servers via `object_permission.mcp_servers` (or an explicit empty list when the
+CRS declares no `mcp_servers`).
 
 `libCRS` connects using the framework-injected `OSS_CRS_LLM_API_URL` and key
 from `OSS_CRS_LLM_API_KEY_FILE`, falling back to `OSS_CRS_LLM_API_KEY`.

@@ -1100,6 +1100,14 @@ def test_mcp_servers_rendered_in_compose(monkeypatch, tmp_path: Path) -> None:
     )
     # MCP server should be on the infra-only network
     assert "proj-infra-only-network" in mcp_service.get("networks", {})
+    # ... and on the main compose network, where sidecar DNS aliases live.
+    assert "proj-network" in mcp_service.get("networks", {})
+    # Owner identity and sidecar routing are framework-injected so servers
+    # that drive builds and replays themselves need no per-server config.
+    env = mcp_service.get("environment", [])
+    assert "OSS_CRS_NAME=crs-claude-code" in env
+    assert "BUILDER_MODULE=builder-sidecar" in env
+    assert "RUNNER_MODULE=runner-sidecar" in env
     # MCP server shares its owner CRS's resource group.
     assert mcp_service.get("cpuset") == "2-7"
     assert mcp_service.get("mem_limit") == "8G"
@@ -1364,8 +1372,8 @@ def test_mcp_per_crs_namespacing(monkeypatch, tmp_path: Path) -> None:
     assert "crs_a_ripgrep" in nets_a["proj-infra-only-network"]["aliases"]
 
 
-def test_mcp_artifacts_path_mount(monkeypatch, tmp_path: Path) -> None:
-    """artifacts_path mounts the owning CRS build output :ro."""
+def test_mcp_requires_build_artifacts_mounts(monkeypatch, tmp_path: Path) -> None:
+    """requires_build_artifacts mounts base output :ro and rebuild tree :rw."""
     _patch_renderer(monkeypatch)
     registry_dir = tmp_path / "registry" / "mcp"
     registry_dir.mkdir(parents=True)
@@ -1375,7 +1383,7 @@ def test_mcp_artifacts_path_mount(monkeypatch, tmp_path: Path) -> None:
                 "name": "an",
                 "image": "img:latest",
                 "url": "http://an:8000/mcp",
-                "artifacts_path": "/artifacts",
+                "requires_build_artifacts": True,
             },
             f,
         )
@@ -1390,11 +1398,16 @@ def test_mcp_artifacts_path_mount(monkeypatch, tmp_path: Path) -> None:
     target = _make_target(tmp_path, has_repo=True)
     rendered, _ = _render(crs_compose, target, tmp_path)
     svc = yaml.safe_load(rendered)["services"]["mcp-crs-a-an"]
-    assert any(v.endswith(":/artifacts:ro") for v in svc.get("volumes", []))
+    assert any(v.endswith(":/OSS_CRS_BUILD_OUT_DIR:ro") for v in svc.get("volumes", []))
+    assert any(
+        v.endswith(":/OSS_CRS_REBUILD_OUT_DIR:rw") for v in svc.get("volumes", [])
+    )
 
 
-def test_mcp_artifacts_path_missing_fails(monkeypatch, tmp_path: Path) -> None:
-    """Missing build output with artifacts_path raises."""
+def test_mcp_requires_build_artifacts_missing_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Missing build output with requires_build_artifacts raises."""
     import pytest
 
     _patch_renderer(monkeypatch)
@@ -1406,7 +1419,7 @@ def test_mcp_artifacts_path_missing_fails(monkeypatch, tmp_path: Path) -> None:
                 "name": "an",
                 "image": "img:latest",
                 "url": "http://an:8000/mcp",
-                "artifacts_path": "/artifacts",
+                "requires_build_artifacts": True,
             },
             f,
         )
@@ -1421,7 +1434,7 @@ def test_mcp_artifacts_path_missing_fails(monkeypatch, tmp_path: Path) -> None:
         tmp_path / "missing-build"
     )
     target = _make_target(tmp_path, has_repo=True)
-    with pytest.raises(ValueError, match="artifacts_path"):
+    with pytest.raises(ValueError, match="requires_build_artifacts"):
         _render(crs_compose, target, tmp_path)
 
 

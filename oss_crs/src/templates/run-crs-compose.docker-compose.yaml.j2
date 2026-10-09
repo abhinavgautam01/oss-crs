@@ -398,19 +398,36 @@ services:
     cpuset: "{{ item.cpuset }}"
     mem_limit: "{{ item.memory }}"
 {%- endif %}
+    # Owner identity and sidecar routing for servers that drive builds and
+    # replays themselves (e.g. trace). Framework-set, mirroring env_policy
+    # for run modules; inert to servers that read neither.
+    environment:
+      - OSS_CRS_NAME={{ item.crs_name }}
+      - BUILDER_MODULE=builder-sidecar
+      - RUNNER_MODULE=runner-sidecar
 {%- if item.server.command %}
     command: {{ item.server.command | tojson }}
 {%- endif %}
-{%- if item.server.requires_source or item.server.artifacts_path %}
+{%- if item.server.requires_source or item.server.requires_build_artifacts %}
     volumes:
 {%- if item.server.requires_source %}
       - {{ target_source_path }}:/OSS_CRS_TARGET_SOURCE:ro
 {%- endif %}
-{%- if item.server.artifacts_path %}
-      - {{ item.build_output_dir }}:{{ item.server.artifacts_path }}:ro
+{%- if item.server.requires_build_artifacts %}
+      # Base build output read-only plus the shared rebuild tree
+      # read-write: artifact-tree consumers in this class write trace,
+      # verdict, and input files next to the builds they replay.
+      - {{ item.build_output_dir }}:/OSS_CRS_BUILD_OUT_DIR:ro
+      - {{ rebuild_out_dir }}:/OSS_CRS_REBUILD_OUT_DIR:rw
 {%- endif %}
 {%- endif %}
+    # Main compose network (alongside the isolated one): sidecar DNS
+    # aliases (builder-sidecar.<crs>, runner-sidecar.<crs>) resolve only
+    # among containers sharing it, and servers that drive builds and
+    # replays themselves must reach them. This matches the posture CRS
+    # run modules already have by joining both networks.
     networks:
+      {{ crs_compose_name }}-network:
       {{ crs_compose_name }}-infra-only-network:
         aliases:
           - {{ item.gateway_name }}

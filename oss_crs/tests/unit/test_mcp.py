@@ -633,32 +633,31 @@ class TestComposeSchemaWithMcpServers:
             CRSComposeConfig.from_dict(data)
 
 
-class TestMCPServerArtifactsPath:
+class TestMCPServerRequiresBuildArtifacts:
     def test_valid(self):
         config = MCPServerConfig(
             name="test",
             image="some-image",
             url="http://test:8000/mcp",
-            artifacts_path="/artifacts",
+            requires_build_artifacts=True,
         )
-        assert config.artifacts_path == "/artifacts"
+        assert config.requires_build_artifacts is True
 
-    def test_defaults_none(self):
+    def test_defaults_false(self):
         config = MCPServerConfig(
             name="test",
             image="some-image",
             url="http://test:8000/mcp",
         )
-        assert config.artifacts_path is None
+        assert config.requires_build_artifacts is False
 
-    @pytest.mark.parametrize("bad", ["", "relative", "artifacts", "/a:b", "/a/../b"])
-    def test_invalid_rejected(self, bad):
+    def test_non_bool_rejected(self):
         with pytest.raises(ValueError):
             MCPServerConfig(
                 name="test",
                 image="some-image",
                 url="http://test:8000/mcp",
-                artifacts_path=bad,
+                requires_build_artifacts=["yes"],
             )
 
 
