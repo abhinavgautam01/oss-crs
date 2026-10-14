@@ -219,8 +219,7 @@ def prepare_llm_context(
                 "llm_budget": crs.resource.llm_budget,
                 "mcp_servers": [
                     mcp_gateway_name(crs.name, server_name)
-                    for server_name in getattr(crs.resource, "mcp_servers", None)
-                    or []
+                    for server_name in getattr(crs.resource, "mcp_servers", None) or []
                 ],
             }
         key_gen_request_path = tmp_dir / "key_gen_request.yaml"
@@ -590,6 +589,10 @@ def render_run_crs_compose_docker_compose(
     mcp_instances: list[dict] = []
     gateway_entries: list[tuple] = []
     for crs in crs_compose.crs_list:
+        if crs.resource is None:  # for type check
+            raise RuntimeError(
+                f"CRS '{crs.name}' is missing resource configuration for MCP servers"
+            )
         crs_mcp_names = getattr(crs.resource, "mcp_servers", None) or []
         if not crs_mcp_names:
             continue
@@ -619,6 +622,8 @@ def render_run_crs_compose_docker_compose(
                     "server": server,
                     "image": server.resolved_image,
                     "build_output_dir": str(build_out),
+                    "cpuset": crs.resource.cpuset,
+                    "memory": crs.resource.memory,
                 }
             )
             gateway_entries.append((crs.name, server))

@@ -1077,6 +1077,82 @@ def test_mcp_servers_rendered_in_compose(monkeypatch, tmp_path: Path) -> None:
     )
     # MCP server should be on the infra-only network
     assert "proj-infra-only-network" in mcp_service.get("networks", {})
+    # MCP server shares its owner CRS's resource group.
+    assert mcp_service.get("cpuset") == "2-7"
+    assert mcp_service.get("mem_limit") == "8G"
+
+
+def test_mcp_server_joins_owner_cgroup_in_cgroup_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """In cgroup-parent mode the MCP service joins its owner CRS's cgroup."""
+    _patch_renderer(monkeypatch)
+
+    registry_dir = tmp_path / "registry" / "mcp"
+    registry_dir.mkdir(parents=True)
+    with open(registry_dir / "ripgrep.yaml", "w") as f:
+        yaml.dump(
+            {
+                "name": "ripgrep",
+                "image": "ghcr.io/oss-crs/mcp-ripgrep:latest",
+                "url": "http://ripgrep:8000/mcp",
+            },
+            f,
+        )
+    monkeypatch.setattr(
+        "oss_crs.src.templates.renderer.get_default_registry_dir",
+        lambda: registry_dir,
+    )
+
+    crs = _make_crs(tmp_path, "crs-a")
+    crs_compose = _make_crs_compose(tmp_path, [crs], mcp_servers=["ripgrep"])
+    target = _make_target(tmp_path, has_repo=True)
+
+    rendered, warnings = render_run_crs_compose_docker_compose(
+        crs_compose=crs_compose,
+        tmp_docker_compose=SimpleNamespace(dir=tmp_path / "tmp-compose"),
+        crs_compose_name="proj",
+        target=target,
+        run_id="run-1",
+        build_id="build-1",
+        sanitizer="address",
+        cgroup_parents={"crs-a": "oss-crs-run-1"},
+    )
+    assert warnings == []
+
+    mcp_service = yaml.safe_load(rendered)["services"]["mcp-crs-a-ripgrep"]
+    assert mcp_service.get("cgroup_parent") == "oss-crs-run-1"
+    assert "cpuset" not in mcp_service
+    assert "mem_limit" not in mcp_service
+
+
+def test_key_gen_request_scopes_mcp_servers_per_crs(tmp_path: Path) -> None:
+    """key_gen_request.yaml grants each CRS key only its own MCP servers."""
+    from oss_crs.src.templates.renderer import prepare_llm_context
+
+    def fake_crs(name, mcp_servers):
+        return SimpleNamespace(
+            name=name,
+            resource=SimpleNamespace(llm_budget=10, mcp_servers=mcp_servers),
+            config=SimpleNamespace(required_llms=["gpt-4o"]),
+        )
+
+    llm = SimpleNamespace(
+        exists=lambda: True,
+        mode="internal",
+        extract_envs=lambda: [],
+        llm_config=SimpleNamespace(litellm=SimpleNamespace(internal=None)),
+    )
+    compose = SimpleNamespace(
+        crs_list=[fake_crs("crs-a", ["ripgrep"]), fake_crs("crs-b", None)],
+        llm=llm,
+    )
+    ctx = prepare_llm_context(SimpleNamespace(dir=tmp_path), compose)
+    assert ctx is not None
+    request = yaml.safe_load(Path(ctx["key_gen_request_path"]).read_text())
+    assert request["crs-a"]["mcp_servers"] == ["crs_a_ripgrep"]
+    # MCP-less CRS gets an explicit empty grant (deny by default).
+    assert request["crs-b"]["mcp_servers"] == []
 
 
 def test_mcp_dockerfile_renders_prepared_image(monkeypatch, tmp_path: Path) -> None:

@@ -380,6 +380,13 @@ services:
     image: {{ item.image }}
     attach: false
     restart: on-failure:3
+{%- if cgroup_parents and item.crs_name in cgroup_parents %}
+    # Same cgroup as the owning CRS: resources managed by parent cgroup.
+    cgroup_parent: "{{ cgroup_parents[item.crs_name] }}"
+{%- else %}
+    cpuset: "{{ item.cpuset }}"
+    mem_limit: "{{ item.memory }}"
+{%- endif %}
 {%- if item.server.command %}
     command: {{ item.server.command | tojson }}
 {%- endif %}
