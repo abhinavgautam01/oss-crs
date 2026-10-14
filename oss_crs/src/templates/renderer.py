@@ -217,6 +217,11 @@ def prepare_llm_context(
                 "api_key": key,
                 "required_llms": crs.config.required_llms,
                 "llm_budget": crs.resource.llm_budget,
+                "mcp_servers": [
+                    mcp_gateway_name(crs.name, server_name)
+                    for server_name in getattr(crs.resource, "mcp_servers", None)
+                    or []
+                ],
             }
         key_gen_request_path = tmp_dir / "key_gen_request.yaml"
         key_gen_request_path.write_text(
@@ -304,10 +309,11 @@ def modify_litellm_config_for_mcp(
         config.pop("general_settings", None)
 
     # Add mcp_servers section with each server's validated transport.
-    # allow_all_keys lets this run's
-    # per-CRS virtual keys reach the gateway without per-key grants.
-    # Per-CRS tuples are namespaced to avoid collisions when two CRSs share
-    # a registry server with different build artifacts.
+    # allow_all_keys is False (deny by default): each CRS virtual key is
+    # granted only its own namespaced gateway servers via object_permission
+    # in key_gen_request.yaml. Per-CRS tuples are namespaced to avoid
+    # collisions when two CRSs share a registry server with different
+    # build artifacts.
     mcp_servers = {}
     for entry in mcp_server_configs:
         if isinstance(entry, tuple):
@@ -321,7 +327,7 @@ def modify_litellm_config_for_mcp(
         mcp_servers[key] = {
             "url": url,
             "transport": mcp_server.transport,
-            "allow_all_keys": True,
+            "allow_all_keys": False,
         }
     config["mcp_servers"] = mcp_servers
 

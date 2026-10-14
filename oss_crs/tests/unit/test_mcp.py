@@ -322,8 +322,9 @@ class TestModifyLitellmConfigForMcp:
         assert entry["url"] == "http://ripgrep:8000/mcp"
         # Streamable HTTP: LiteLLM defaults to SSE
         assert entry["transport"] == "http"
-        # Per-CRS virtual keys need gateway access without per-key grants
-        assert entry["allow_all_keys"] is True
+        # Deny by default: CRS virtual keys are granted only their own
+        # namespaced servers via object_permission in key_gen_request.yaml.
+        assert entry["allow_all_keys"] is False
         # Prompt hook registration (merged, pointing at the instance)
         callbacks = config["litellm_settings"]["callbacks"]
         assert "oss_crs_mcp_hook.proxy_handler_instance" in callbacks
